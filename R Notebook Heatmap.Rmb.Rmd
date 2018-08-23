@@ -1,0 +1,326 @@
+---
+title: "R Notebook Heatmap"
+output:
+  pdf_document: default
+  html_notebook: default
+  word_document: default
+Author: Marie Gorka modified by NK
+---
+
+## Donner le nom du fichier (écahntillons)
+```{R}
+samplename<-"20180713_All_Results"
+rawdata<-paste("data4", ".csv", sep = "")
+
+```
+## charger les packages et les donn?es dont l'on va se servir. POur cr?er les cartes de chaleur on va utiliser le package PHeatmap. Il s'agit d'un des packages qui offre le plus de possibilit?s en mati?re de cr?ation de cartes de chaleurs complexes.
+
+```{r}
+##setwd("C:/Users/nkummer1/switchdrive/MA/Vion/Data Treatment/R/HeatMap")
+wd<-paste("C:/Users/nkummer1/switchdrive/MA/Vion/Data Treatment/R/",samplename, sep = "")
+setwd(wd)
+pcks <- c("car","caret","pheatmap", "colorRamps", "RColorBrewer", "dendsort")
+lapply(pcks, require, character.only = TRUE)
+```
+
+## Pour créer un fichier avec le groupe de chaque échantillons
+
+```{R}
+samplename1<-"20180821_Demo"
+wd<-paste("C:/Users/nkummer1/switchdrive/MA/Vion/Data Treatment/R/",samplename1, sep = "")
+setwd(wd)
+rawdata1<-paste(samplename1, ".csv", sep = "")
+groups <- data.frame(read.csv(rawdata1,sep=";"), stringsAsFactors=FALSE) 
+groups<-groups[1,]
+
+
+RawAbPosition<-match("Raw.abundance",names(groups))
+a<-RawAbPosition-1
+b<-ncol(groups)
+groups<-groups[,a:b]
+
+for (i in 1:ncol(groups)) {      ## Seulement le groupe du premier échantillon est indiqué, mais pas celui des autres échantillons, on colle le groupe à tous les échantillons...
+    if (groups[,i]==""){
+    groups[,i]<-x
+    }  else {
+        x<-groups[,i]
+    }
+}
+
+```
+## On ouvre data4, on donne comme nom soit le RT_mz, soit l'identification trouvée puis on effece les colonnes inutiles
+```{R}
+wd<-paste("C:/Users/nkummer1/switchdrive/MA/Vion/Data Treatment/R/",samplename, sep = "")
+setwd(wd)
+data1 <- read.csv(rawdata, header = FALSE, sep = ",", stringsAsFactors=FALSE)
+colnames(data1) = data1[1, ] # La première ligne deviendient le nom des colonnes)
+for (i in 1:nrow(data1)) {   # Pour donner comme nom soit le RT_mz, soit l'identification trouvée
+    if (data1[i, match("Identifications",names(data1))] == "-") {
+         }  else  {data1[i, 1]<-data1[i, match("Identifications",names(data1))]
+    }
+}
+MaxAbPosition<-match("Maximum.Abundance",names(data1))
+for (i in 2:MaxAbPosition){# On enl�ve les colonnes inutiles (soit entre le nom et le premier �chantillons)
+    data1[,MaxAbPosition-i+2] <- NULL   
+  
+}
+data1<-data1[,-ncol(data1)] # On enl�ve la dernière colonne 
+names(groups)<-names(data1)
+data1[1,1]<-"Compounds"         # La première ligne et colonne s'appelle Compounds ...
+```
+On ajoute le groupe pour chaque échantillon, on transpose le dataframe, on enlève les lignes inutiles
+```{R}
+
+data5<-rbind(data1,groups) # Le groupe est à la dernière ligne du dataframe
+data6<-as.data.frame(t(data5),stringsAsFactors=FALSE)            # transposition du dataframe
+data6[1,ncol(data6)]<-"Group"         # La première ligne et colonne s'appelle Groupe ...
+colnames(data6) = data6[1, ] # car la première ligne deviendra le nom des colonnes)
+data6 = data6[-1, ]        # on enlève la premi�re ligne qui contient les noms des colonnes
+data7<-data6[,c(ncol(data6), 1:ncol(data6)-1)]
+
+wd<-paste("C:/Users/nkummer1/switchdrive/MA/Vion/Data Treatment/R/",samplename, sep = "")
+setwd(wd)
+write.csv(data7, file = "data7(MetaboAnalyst).csv", row.names = FALSE)  # On enregiste un fichier appelé data2
+
+```
+
+On va remplacer les 0 par 1 car les fonctions n'aiment pas les valeurs nulles. De plus, on va mettre les noms des groupes et des ?chantillons dans des variables s?par?es pour pouvoir ensuite s'en servir comme label et pouvoir leur attribuer des couleurs.
+```{r}
+data7[data7 == 0] <- 1
+data7_name <- data7[,2]
+data7_groups <- data7[,1]
+data7_features <- colnames(data7)[-c(1:2)]
+```
+On effectue ensuite un pr?-traitement des donn?es. Une transpos?e doit ?galement ?tre effectu?e en fonction de comment on souhaite voir apparaitre la carte de chaleur. Ici j'ai voulu que les masses apparaissent par ligne mais dans le fichier de base elles se trouvaient en colonnes, d'o? la transpos?e.
+```{r}
+data7_pred <- sapply(data7[,-c(1:2)], as.numeric)
+data7_predNorm <- data7_pred/apply(data7_pred, 2, median)
+data7_predLog <- log10(data7_predNorm)
+data7_predLogTransp <- t(data7_predLog)
+
+```
+On va ensuite d?finir les arguments pour la l?gende de la carte de chaleur et attribuer les diff?rentes couleurs. NK, pour les nom on prend que les 20 premier caractères
+```{r}
+colnames(data7_predLogTransp) = data7_name
+##rownames(data1_predLogTransp) = data1_features
+first.20 <- substr(data7_features, start=1, stop=50)
+rownames(data7_predLogTransp) = first.20
+data7_col <- data.frame(group = data7_groups)
+rownames(data7_col) <- data7_name
+data7_colors <- list(group = brewer.pal(4, "Set1"))
+names(data7_colors$group) <- unique(data7_groups)
+```
+On va maintenant pouvoir cr?er les cartes de chaleur. On peut choisir de faire apparaitre plus ou moins de choses dans la l?gende de m?me que de "scaler" ou non les donn?es. Si on d?cide dans un premier temps d'afficher un maximum d'informations et de "scaler" les donn?es on obtient la carte de chaleur suivante:
+```{r}
+
+pheatmap(data7_predLogTransp, scale = "row", clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", cluster_rows = TRUE, cluster_cols = TRUE,
+         clustering_method = "ward.D2", annotation_legend = T, annotation_colors = data7_colors, annotation_col = data7_col, 
+         drop_levels = T, annotation = "left", main = "Heatmap")
+```
+Il y a tellement de variables affich?es que l'on arrive pas ? lire les noms sur le c?t?. Si on essaye de la rendre plus visible en supprimant le nom des diff?rentes variables et des ?chantillons en bas, on obtient la carte suivante :
+```{r}
+wd<-paste("C:/Users/nkummer1/switchdrive/MA/Vion/Data Treatment/R/",samplename, sep = "")
+setwd(wd)
+Separation1<-length(which(data7$Group == names(data7_colors$group)[1]))
+Separation2<-length(which(data7$Group == names(data7_colors$group)[2]))+Separation1
+Separation3<-length(which(data7$Group == names(data7_colors$group)[3]))+Separation2
+
+##jpeg("HeatMap.jpg", width = 20, height = 160, units = 'in', res = 400) # show_rownames = TRUE, show_colnames = TRUE per default
+##png("HeatMap.png",width=3000,height=90000, res=400)
+png("HeatMap.png",width=2000,height=70000, res=300)
+##pdf("HeatMap.pdf",width=300,height=9000)
+pheatmap(data7_predLogTransp,scale = "row", clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", cluster_rows = FALSE, cluster_cols = FALSE,
+         clustering_method = "ward.D2", annotation_colors = data7_colors, annotation_col = data7_col, 
+         drop_levels = TRUE, fontsize_col = 2,fontsize_row = 2, cellwidth = 3, gaps_col = c(Separation1, Separation2, Separation3), cellheight = 3, fontsize = 4, main = "Heatmap", border_color="grey")
+
+```
+On va faire une carte de chaleur sans classification (ajouté par NK):
+```{R}
+pheatmap(data7_predLogTransp, scale = "row", clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", cluster_rows = FALSE, cluster_cols = FALSE,
+         clustering_method = "ward.D2", annotation_colors = data7_colors, annotation_col = data7_col, 
+         drop_levels = TRUE, show_rownames = FALSE, show_colnames = TRUE, cellwidth = 8, cellheight = 2)
+
+```
+
+Enfin, on peut choisir de ne pas "scaler" les donn?es :
+```{r}
+pheatmap(data1_predLogTransp, clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", cluster_rows = TRUE, cluster_cols = TRUE,
+         clustering_method = "ward.D2", annotation_colors = data1_colors, annotation_col = data1_col, 
+         drop_levels = TRUE, show_rownames = FALSE, show_colnames = TRUE) 
+```
+Si on le souhaite on peut visualiser uniquement les clusters et les ordonner avec les fonctions suivantes :
+```{r}
+data1_cluster_cols <- hclust(dist(t(data1_predLogTransp)))
+plot(data1_cluster_cols, main = "Unsorted dendogram", xlab = "", sub = "",cex = 0.5)
+rect.hclust(data1_cluster_cols, k=6, border="red")
+```
+Ici l'ordonnement n'est pas n?cessaire mais il peut s'av?rer utile si les donn?es sont mal class?es ou s'il y en a beaucoup.
+```{r}
+sort_hclust <- function(...) as.hclust(dendsort(as.dendrogram(...)))
+data1_cluster_cols <- sort_hclust(data1_cluster_cols)
+plot(data1_cluster_cols, main = "Sorted Dendrogram", xlab = "", sub = "", cex = 0.5)
+```
+On peut ensuite refaire une carte de chaleur avec ces nouvelles donn?es. L'avantage du package pheatmap est qu'il fait appel aux fonctions hclust, ce qui nous permet de jouer facilement avec les propri?t?s des dendogrammes de nos donn?es. Ici ce n'est pas tr?s parlant mais il faut garder en t?te que c'est quelque chose que l'on peut faire.
+```{r}
+pheatmap(data1_predLogTransp, scale = "column", clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", cluster_rows = TRUE, cluster_cols = data1_cluster_cols,
+          clustering_method = "ward.D2", annotation_colors = data1_colors, annotation_col = data1_col, drop_levels = TRUE,
+          show_rownames = FALSE, show_colnames = FALSE)
+```
+Avec ces exemples on a bien vu que le nom des diff?rentes variable est compl?tement illisible et qu'il ne nous permet pas de voir qu'elle est l'influence de chaque variable sur la classification et dans quelle classe elle a une intensit? plus importante. Une solution envisageable est d'effectuer une s?lection des variables les plus discriminatives en utilisant un algorithme de classification supervis? tel que Random Forest. Il existe deux packages permettant de faire du Random Forest : le package de base "caret"" et le package "Random Forest". L'avantage de la fonction train de caret est qu'il fait directement une cross validation - ce qui n'est pas le cas avec random frest -  et elle peut ?tre utilis?e avec de nombreux autres mod?les. Cela ?vite ainsi de changer de package si on souhaite tester plusieurs mod?les. Par contre pour le calcul de l'importance la fonction propos?e par le package random forest permet d'avoir acc?s ? plus de d?tails comme mean decrease gini ou mean decrease in accuracy.
+Dans un premier temps on va stocker les donn?es dans une nouvelle variable et les pr?traiter pour qu'elles soient au bon format.
+```{r}
+install.packages("randomForest")
+library(randomForest)
+library(caret)
+setwd("C:/Users/nkummer1/switchdrive/MA/Vion/Data Treatment/R/HeatMap")
+data2 <- read.csv("Inter_Moyenne_MinValue20000.csv", header = TRUE, sep = ";")
+data2 <- read.csv("20180713_All_Results_Data4_HeatMap.csv", header = TRUE, sep = ";")
+data1[data1 == 0] <- 1
+data2 <- data2[,-c(1)]
+```
+On doit ensuite cr?er le mod?le de contr?le les donn?es. On peut choisir parmis plusieurs m?thodes de resampling telles que "boot", "boot632", "optimism_boot", "boot_all", "cv", "repeatedcv" etc. Chacune des fonctions de resampling ? ses particularit?s. Ici "repeatedcv" permet de casser le jeu de donn?es en 10 et de r?p?ter 5 fois les param?tres. On a une sorte de cross-validation r?p?t?e.
+```{r}
+trainingMethod <- trainControl(method = "repeatedcv", savePredictions = "final", number = 10, repeats = 5)
+```
+Ensuite on va pouvoir entrainer le mod?le. Ici la fonction permet d'?tablir une grille de param?tres de r?glage pour un certain nombre de routines de classification, adapte le mod?le et calcul ? chaque fois une performance bas?e sur le r??chantillonage.
+```{r}
+set.seed(1234)
+output.forest_2 <- train(Groupe ~., data = data2, method = "rf", trControl = trainingMethod,
+                         tuneGrid = data.frame(.mtry = floor(seq(5, 450, length = 50))), ntree = 500, importance = TRUE)
+
+plot(output.forest_2)
+```
+Le mod?le final, c'est ? dire le mod?le optimal / celui qui a donn? les meilleurs r?sultats, est ensuite export? dans une nouvelle variable afin de pouvoir travailler avec par la suite.
+```{r}
+fm <- output.forest_2$finalModel
+```
+Ensuite on va s'int?resser ? l'importance de chacune des variables en utilisant la fonction importance. On utilise ici la fonction du package random forest car elle nous permet d'avoir acc?s aux deux min decrease.
+```{r}
+importance <- importance(fm)
+print(importance)
+```
+Tandis que la fonction varImp de caret retourne des valeurs d'importances simples mais on ne sait pas ? quoi elles correspondent exactement. En tout cas d'apr?s les diff?rents forum celle-ci ne calcule pas l'importance de la m?me mani?re et est moins robuste que le package Random Forest.
+```{r}
+head(varImp(fm))
+```
+Ensuite on va extraire les 50 variables les plus importantes selon la min decrease accuracy. Tout d'abord on doit classer les variables selon leur importance et non selon leur ordre croissant. En effet dans la fonction pr?cedente on peut voir que les m/z sont class?s par ordre croissant et non pas selon leur valeur d'importance.
+```{r}
+importance_all <- importanceSorted <- importance[order(importance[,5], decreasing = TRUE),]
+importance50 <- importanceSorted[1:50,]
+```
+On peut ?galement afficher les plot d'importance des variables selon les deux types de mean decrease en choisissant 1 ou 2 dans la fonction.
+```{r}
+varImpPlot(fm, type = 1)
+```
+Avec l'autre:
+```{r}
+varImpPlot(fm, type = 2)
+```
+On peut ?galement cr?er un histogramme des out of the bag:
+```{r}
+hist(fm$oob.times)
+```
+Un package qui aide aussi ? la compr?hension du mod?le Random Forest est randomforestexplainer. Celui-ci nous permet de cr?er de nombreux graphiques afin de mieux comprendre les diff?rents ph?nom?nes tels que la minimal depth, l'explication de l'importance des variables ou encore de faire multiway importance plot. Plusieurs exemples sont disponibles sur le site : https://rawgit.com/MI2DataLab/randomForestExplainer/master/inst/doc/randomForestExplainer.html 
+Pour la distrubition de la minimal depth et sa moyenne on utilise les fonctions suivantes:
+```{r}
+library(randomForestExplainer)
+min_depth_frame <- min_depth_distribution(fm)
+head(min_depth_frame, n = 10)
+plot_min_depth_distribution(min_depth_frame, mean_sample = "top_trees", k = 25, min_no_of_trees = TRUE)
+```
+Pour l'explication des variables les suivantes:
+```{r}
+importanceexplained <- measure_importance(fm)
+importanceexplained
+```
+Et enfin les multiway plots:
+```{r}
+importance_frame <- measure_importance(fm)
+plot_multi_way_importance(importance_frame, size_measure = "no_of_nodes")
+```
+```{r}
+plot_importance_ggpairs(importance_frame)
+```
+```{r}
+plot_importance_rankings(importance_frame)
+```
+Pour pouvoir refaire la carte de chaleur avec les 50 variables les plus discriminantes il faut d'abord stocker ces 50 variables dans une nouvelle variable.
+```{r}
+features_50 <- rownames(importance50)
+```
+Par mesure de pr?caution et pour ?tre sur que les donn?es sont bonnes et non manipul?es on red?finit les chemin et r?importe les donn?es brutes.
+```{r}
+setwd("C:/Users/mgorka/Desktop/TM_New Code/Intervariabilit? 4 personnes")
+pcks <- c("car","caret","pheatmap", "colorRamps", "RColorBrewer")
+lapply(pcks, require, character.only = TRUE)
+
+data1 <- read.csv("Inter_Moyenne_MinValue20000.csv", header = TRUE, sep = ";")
+```
+Comme pr?cedemment on red?finit tous les param?tres pour la carte de chaleur.
+```{r}
+#remplacement des 0 par 20000
+data1[data1 == 0] <- 1
+
+#Assignation des noms de groupes / variables / ?chantillons
+data1_name <- data1[,1]
+data1_groups <- data1[,2]
+data1_features <- colnames(data1)[-c(1:2)]
+
+#Cr?ation du fichier de travail avec seulement les data chiffr?es
+data1_pred <- data1[,-c(1:2)]
+
+#r?duction du fichier aux 50 cariables les plus discriminantes
+data1_pred_reduced <- data1[features_50]
+data1_features <- colnames(data1_pred_reduced)
+
+data1_predNorm <- data1_pred_reduced/apply(data1_pred_reduced, 2, median)
+
+#Pr?traitement avec le logarithme
+data1_pred_reduced_Log <- log10(data1_predNorm)
+
+#Transpos?e pour la lecture plus simple de la heatmap
+data1_pred_reduced_LogTransp <- t(data1_pred_reduced_Log)
+
+#L?gende sur la heatmap des lignes et colonnes
+colnames(data1_pred_reduced_LogTransp) = data1_name
+rownames(data1_pred_reduced_LogTransp) = data1_features
+
+
+#Assignations des couleurs pour la l?gende
+#data frame avec les annotations de colonne
+data1_col <- data.frame(group = data1_groups)
+rownames(data1_col) <- data1_name
+#liste des couleurs pour chaque annotation
+data1_colors <- list(group = brewer.pal(4, "Set1"))
+names(data1_colors$group) <- unique(data1_groups)
+```
+Et enfin on peut recr?er la carte de chaleur toujours en utilisant la fonction pheatmap. La nouvelle carte de chaleur sera ainsi beaucoup plus lisible suite ? la r?duction du nombre de variables.
+```{r}
+pheatmap(data1_pred_reduced_LogTransp, scale = "row", clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean", cluster_rows = TRUE, cluster_cols = TRUE,
+         clustering_method = "ward.D2", annotation_colors = data1_colors, annotation_col = data1_col, 
+         drop_levels = TRUE, main = "Heatmap", annotation = )
+```
+De nouveau on peut d?cider de supprimer ou non certaines l?gendes.
+```{r}
+pheatmap(data1_pred_reduced_LogTransp, scale = "row", clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", cluster_rows = TRUE, cluster_cols = TRUE,
+         clustering_method = "ward.D2", annotation_colors = data1_colors, annotation_col = data1_col, 
+         drop_levels = TRUE, show_rownames = FALSE, show_colnames = FALSE)
+```
+Et de scaler ou non les donn?es.
+```{r}
+pheatmap(data1_pred_reduced_LogTransp, clustering_distance_rows = "euclidean", 
+         clustering_distance_cols = "euclidean", cluster_rows = TRUE, cluster_cols = TRUE,
+         clustering_method = "ward.D2", annotation_colors = data1_colors, annotation_col = data1_col, 
+         drop_levels = TRUE,show_rownames = FALSE, show_colnames = FALSE) 
+```
+
+
+
+
